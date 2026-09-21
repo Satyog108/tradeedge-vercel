@@ -1,14 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 type Leg = {
   id: string;
   kind: "CE" | "PE";
   strike: number;
   premium: number;
-  qty: number;
+  lots: number;
+};
+
+const LOT_SIZES: Record<string, number> = {
+  NIFTY: 50,
+  BANKNIFTY: 15,
+  FINNIFTY: 40,
+  MIDCPNIFTY: 75,
+  Custom: 1,
 };
 
 const newLeg = (spot: number, kind: "CE" | "PE" = "CE"): Leg => ({
@@ -16,15 +25,24 @@ const newLeg = (spot: number, kind: "CE" | "PE" = "CE"): Leg => ({
   kind,
   strike: spot,
   premium: 100,
-  qty: 1,
+  lots: 1,
 });
 
-export default function Planner() {
+function PlannerInner() {
+  const searchParams = useSearchParams();
+  const initialIndex =
+    (searchParams.get("index") as keyof typeof LOT_SIZES) || "NIFTY";
+
   const [spot, setSpot] = useState(23400);
+  const [indexName, setIndexName] =
+    useState<keyof typeof LOT_SIZES>(initialIndex);
+  const [customLot, setCustomLot] = useState(1);
   const [legs, setLegs] = useState<Leg[]>([
-    { id: "1", kind: "CE", strike: 23500, premium: 150, qty: 2 },
-    { id: "2", kind: "PE", strike: 23900, premium: 400, qty: 1 },
+    { id: "1", kind: "CE", strike: 23500, premium: 150, lots: 2 },
+    { id: "2", kind: "PE", strike: 23900, premium: 400, lots: 1 },
   ]);
+
+  const lotSize = indexName === "Custom" ? customLot : LOT_SIZES[indexName];
 
   const payoffAt = (expirySpot: number) =>
     legs.reduce((sum, leg) => {
@@ -32,7 +50,7 @@ export default function Planner() {
         leg.kind === "CE"
           ? Math.max(0, expirySpot - leg.strike)
           : Math.max(0, leg.strike - expirySpot);
-      return sum + (intrinsic - leg.premium) * leg.qty;
+      return sum + (intrinsic - leg.premium) * leg.lots * lotSize;
     }, 0);
 
   const points = 80;
@@ -46,7 +64,7 @@ export default function Planner() {
   });
 
   const investment = legs.reduce(
-    (s, l) => s + (l.qty > 0 ? l.premium * l.qty : 0),
+    (s, l) => s + (l.lots > 0 ? l.premium * l.lots * lotSize : 0),
     0
   );
   const maxProfit = Math.max(...curve.map((c) => c.pnl));
@@ -64,13 +82,18 @@ export default function Planner() {
   const updateLeg = (id: string, patch: Partial<Leg>) =>
     setLegs((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 
+  const totalContracts = legs.reduce(
+    (s, l) => s + l.lots * lotSize * (l.lots > 0 ? 1 : 0),
+    0
+  );
+
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100 p-6 md:p-10">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold">Trade Planner</h1>
           <Link
-            href="/"
+            href={`/?index=${indexName === "Custom" ? "NIFTY" : indexName}`}
             className="text-blue-400 hover:text-blue-300 text-sm"
           >
             ← Back to dashboard
@@ -78,19 +101,64 @@ export default function Planner() {
         </div>
 
         <p className="text-xs text-gray-500 mb-6">
-          Simulate hedge payoff at expiry. Based on Transcript 1 logic.
+          Simulate hedge payoff at expiry. Includes lot-size multiplication and
+          index selection.
         </p>
 
-        <div className="mb-6">
-          <label className="block text-xs text-gray-400 uppercase mb-1">
-            Current Spot
-          </label>
-          <input
-            type="number"
-            value={spot}
-            onChange={(e) => setSpot(Number(e.target.value))}
-            className="bg-gray-900 border border-gray-700 rounded px-3 py-2 w-40"
-          />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div>
+            <label className="block text-xs text-gray-400 uppercase mb-1">
+              Index
+            </label>
+            <select
+              value={indexName}
+              onChange={(e) =>
+                setIndexName(e.target.value as keyof typeof LOT_SIZES)
+              }
+              className="bg-gray-900 border border-gray-700 rounded px-3 py-2 w-full"
+            >
+              {Object.keys(LOT_SIZES).map((k) => (
+                <option key={k} value={k}>
+                  {k} (lot={LOT_SIZES[k]})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {indexName === "Custom" && (
+            <div>
+              <label className="block text-xs text-gray-400 uppercase mb-1">
+                Custom Lot Size
+              </label>
+              <input
+                type="number"
+                value={customLot}
+                onChange={(e) => setCustomLot(Number(e.target.value))}
+                className="bg-gray-900 border border-gray-700 rounded px-3 py-2 w-full"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs text-gray-400 uppercase mb-1">
+              Current Spot
+            </label>
+            <input
+              type="number"
+              value={spot}
+              onChange={(e) => setSpot(Number(e.target.value))}
+              className="bg-gray-900 border border-gray-700 rounded px-3 py-2 w-full"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 uppercase mb-1">
+              Lot Size Used
+            </label>
+            <div className="bg-gray-900 border border-gray-700 rounded px-3 py-2 w-full text-gray-300">
+              {lotSize}
+            </div>
+          </div>
         </div>
 
         <h2 className="text-xl font-semibold mb-3">Legs</h2>
@@ -98,14 +166,14 @@ export default function Planner() {
           {legs.map((leg) => (
             <div
               key={leg.id}
-              className="flex flex-wrap gap-2 items-center border border-gray-800 rounded p-2"
+              className="grid grid-cols-12 gap-2 items-center border border-gray-800 rounded p-2"
             >
               <select
                 value={leg.kind}
                 onChange={(e) =>
                   updateLeg(leg.id, { kind: e.target.value as "CE" | "PE" })
                 }
-                className="bg-gray-900 border border-gray-700 rounded px-2 py-1"
+                className="col-span-2 bg-gray-900 border border-gray-700 rounded px-2 py-1"
               >
                 <option value="CE">CE</option>
                 <option value="PE">PE</option>
@@ -117,7 +185,7 @@ export default function Planner() {
                 onChange={(e) =>
                   updateLeg(leg.id, { strike: Number(e.target.value) })
                 }
-                className="bg-gray-900 border border-gray-700 rounded px-2 py-1 w-28"
+                className="col-span-3 bg-gray-900 border border-gray-700 rounded px-2 py-1"
               />
               <input
                 type="number"
@@ -126,22 +194,22 @@ export default function Planner() {
                 onChange={(e) =>
                   updateLeg(leg.id, { premium: Number(e.target.value) })
                 }
-                className="bg-gray-900 border border-gray-700 rounded px-2 py-1 w-28"
+                className="col-span-3 bg-gray-900 border border-gray-700 rounded px-2 py-1"
               />
               <input
                 type="number"
-                placeholder="Qty"
-                value={leg.qty}
+                placeholder="Lots"
+                value={leg.lots}
                 onChange={(e) =>
-                  updateLeg(leg.id, { qty: Number(e.target.value) })
+                  updateLeg(leg.id, { lots: Number(e.target.value) })
                 }
-                className="bg-gray-900 border border-gray-700 rounded px-2 py-1 w-20"
+                className="col-span-2 bg-gray-900 border border-gray-700 rounded px-2 py-1"
               />
               <button
                 onClick={() =>
                   setLegs((prev) => prev.filter((l) => l.id !== leg.id))
                 }
-                className="text-red-400 hover:text-red-300 text-sm ml-auto"
+                className="col-span-2 text-red-400 hover:text-red-300 text-sm"
               >
                 Remove
               </button>
@@ -164,16 +232,29 @@ export default function Planner() {
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <Metric label="Investment" value={`Rs ${investment.toFixed(0)}`} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <Metric
+            label="Total Contracts"
+            value={totalContracts.toLocaleString()}
+          />
+          <Metric
+            label="Investment"
+            value={`₹${investment.toLocaleString("en-IN", {
+              maximumFractionDigits: 0,
+            })}`}
+          />
           <Metric
             label="Max Profit"
-            value={`Rs ${maxProfit.toFixed(0)}`}
+            value={`₹${maxProfit.toLocaleString("en-IN", {
+              maximumFractionDigits: 0,
+            })}`}
             color="text-green-400"
           />
           <Metric
             label="Max Loss"
-            value={`Rs ${maxLoss.toFixed(0)}`}
+            value={`₹${maxLoss.toLocaleString("en-IN", {
+              maximumFractionDigits: 0,
+            })}`}
             color="text-red-400"
           />
         </div>
@@ -184,7 +265,14 @@ export default function Planner() {
 
         <div className="border border-gray-800 rounded-lg p-4">
           <h3 className="font-semibold mb-3">Payoff at Expiry</h3>
-          <PayoffChart curve={curve} spot={spot} />
+          <PayoffChart curve={curve} spot={spot} lotSize={lotSize} />
+        </div>
+
+        <div className="mt-6 text-xs text-gray-500">
+          <p>
+            <b>Note:</b> PnL values are in ₹ and include lot-size
+            multiplication. Premium × Lots × Lot Size = Cost per leg.
+          </p>
         </div>
       </div>
     </main>
@@ -213,9 +301,11 @@ function Metric({
 function PayoffChart({
   curve,
   spot,
+  lotSize,
 }: {
   curve: { s: number; pnl: number }[];
   spot: number;
+  lotSize: number;
 }) {
   const w = 800;
   const h = 260;
@@ -269,7 +359,9 @@ function PayoffChart({
             className="inline-block w-3 h-3 rounded"
             style={{ backgroundColor: "#f1c40f" }}
           />
-          <span className="text-gray-400">PnL at expiry</span>
+          <span className="text-gray-400">
+            PnL at expiry (₹, lot={lotSize})
+          </span>
         </div>
         <div className="flex items-center gap-1">
           <span
@@ -280,5 +372,13 @@ function PayoffChart({
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Planner() {
+  return (
+    <Suspense fallback={<div className="p-10 text-gray-100">Loading…</div>}>
+      <PlannerInner />
+    </Suspense>
   );
 }
