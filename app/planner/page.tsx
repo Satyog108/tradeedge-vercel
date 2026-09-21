@@ -13,10 +13,10 @@ type Leg = {
 };
 
 const LOT_SIZES: Record<string, number> = {
-  NIFTY: 50,
-  BANKNIFTY: 15,
-  FINNIFTY: 40,
-  MIDCPNIFTY: 75,
+  NIFTY: 65,
+  BANKNIFTY: 30,
+  FINNIFTY: 60,
+  MIDCPNIFTY: 120,
   Custom: 1,
 };
 
